@@ -2,6 +2,8 @@
 
 Un script pour imprimer le bon d'envoi Mondial Relay sur une imprimante d'étiquettes Rongta RP425, depuis un Mac, au format 4×6 pouces. Tu vois l'aperçu avant que la moindre étiquette sorte.
 
+Écrit en Python 3 pour le script, en AppleScript pour le lanceur et en shell pour la construction de l'application. Pas de Swift ici.
+
 ## Le problème
 
 Le PDF de Mondial Relay est en A4. L'étiquette occupe le cadre de gauche, la fiche à glisser dans le colis occupe la droite. Si tu l'envoies tel quel à une imprimante d'étiquettes, tu obtiens une page A4 réduite, illisible. Ici, le script repère le cadre, le cale sur le 4×6 sans déformer, et envoie le résultat en ZPL.
