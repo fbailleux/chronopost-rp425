@@ -4,6 +4,10 @@ Un script pour imprimer le bon d'envoi Mondial Relay sur une imprimante d'étiqu
 
 Écrit en Python 3 pour le script, en AppleScript pour le lanceur et en shell pour la construction de l'application. Pas de Swift ici.
 
+## Démonstration
+
+Une vidéo de 36 secondes : [demo/demo-etiquette-rp425.mp4](demo/demo-etiquette-rp425.mp4). Les coordonnées du colis y sont masquées.
+
 ## Le problème
 
 Le PDF de Mondial Relay est en A4. L'étiquette occupe le cadre de gauche, la fiche à glisser dans le colis occupe la droite. Si tu l'envoies tel quel à une imprimante d'étiquettes, tu obtiens une page A4 réduite, illisible. Ici, le script repère le cadre, le cale sur le 4×6 sans déformer, et envoie le résultat en ZPL.
