@@ -20,6 +20,7 @@ import zlib
 
 W, H, RB = 812, 1218, 102          # 4x6 pouces à 203 dpi, 102 octets par ligne
 FILE_PAR_DEFAUT = "_RP425_ZPL_203DPI_"
+MARGE_COTE = 24                     # 3 mm à 203 dpi, de chaque côté de l'étiquette
 DOSSIER = os.path.dirname(os.path.abspath(__file__))
 SORTIE = os.path.join(DOSSIER, "dernier")
 
@@ -150,10 +151,10 @@ def tourner_gauche(g, gw, gh):
     return gh, gw, bytes(r)
 
 
-def cadre_noir(b, y0=0, y1=H, epaisseur=3):
+def cadre_noir(b, x0=0, x1=W, y0=0, y1=H, epaisseur=3):
     for y in range(y0, y1):
-        for x in range(W):
-            if x < epaisseur or x >= W - epaisseur or y < y0 + epaisseur or y >= y1 - epaisseur:
+        for x in range(x0, x1):
+            if x < x0 + epaisseur or x >= x1 - epaisseur or y < y0 + epaisseur or y >= y1 - epaisseur:
                 b[y * W + x] = 1
 
 
@@ -289,17 +290,19 @@ def main():
     with tempfile.TemporaryDirectory() as tmp:
         (x0, y0, fw, fh), (fx0, fy0, ffw, ffh) = repérer(pdf, tmp)
 
-        # Étiquette : le cadre prend toute la largeur du 4x6, sans déformation, centré en hauteur
-        dpi = 288 * W / fw
+        # Étiquette : sans déformation, centrée, avec une marge sur les côtés.
+        # Au ras du papier, la RP425 tronquait le cadre et le texte côté droit (essai du 2026-10-17).
+        lw = W - 2 * MARGE_COTE
+        dpi = 288 * lw / fw
         lh = min(H, round(fh * dpi / 288))
         haut = (H - lh) // 2
-        gw, gh, g = rendre(pdf, tmp, "etiquette", dpi, round(x0 * dpi / 288), round(y0 * dpi / 288), W, lh)
-        etiquette = binariser(g, gw, gh, 170, oy=haut)
-        cadre_noir(etiquette, haut, haut + lh)
+        gw, gh, g = rendre(pdf, tmp, "etiquette", dpi, round(x0 * dpi / 288), round(y0 * dpi / 288), lw, lh)
+        etiquette = binariser(g, gw, gh, 170, ox=MARGE_COTE, oy=haut)
+        cadre_noir(etiquette, MARGE_COTE, MARGE_COTE + lw, haut, haut + lh)
         zpl_e, _ = vers_zpl(etiquette)
 
-        # Fiche destinataire : redressée d'un quart de tour, ajustée dans le 4x6 avec 20 points de marge
-        marge = 20
+        # Fiche destinataire : redressée d'un quart de tour, ajustée dans le 4x6 avec la même marge que l'étiquette
+        marge = MARGE_COTE
         echelle = min((W - 2 * marge) / ffh, (H - 2 * marge) / ffw)
         dpi_f = 288 * echelle
         cw, ch = round(ffw * echelle), round(ffh * echelle)
