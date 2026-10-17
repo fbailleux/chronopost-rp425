@@ -3,6 +3,7 @@
 
 Usage :
     imprimer_etiquette.py [fichier.pdf] [--sans-impression] [--sans-dialogue]
+                          [--parties=etiquette,fiche,depot]
 
 Sans fichier : prend le PDF « bon d'envoi » le plus récent de ~/Downloads.
 Étapes : repérer le cadre de l'étiquette, générer le ZPL compressé (RLE),
@@ -32,18 +33,6 @@ def outil(nom):
     if not os.path.exists(chemin):
         raise SystemExit("Outil introuvable : %s (installer poppler : brew install poppler)" % nom)
     return chemin
-
-
-def dialogue(texte, boutons, defaut, titre="Étiquette Chronopost RP425"):
-    """Renvoie le bouton cliqué, ou None si annulé."""
-    liste = ", ".join('"%s"' % b for b in boutons)
-    script = 'display dialog "%s" with title "%s" buttons {%s} default button "%s" cancel button "%s"' % (
-        texte.replace('"', "'"), titre, liste, defaut, boutons[0])
-    r = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
-    if r.returncode != 0:
-        return None
-    m = re.search(r"button returned:(.*?)(?:,|$)", r.stdout.strip())
-    return m.group(1).strip() if m else None
 
 
 def erreur(texte):
@@ -114,7 +103,31 @@ def repérer(pdf, tmp):
     fiche = encadré(img, w, h, 0, int(w * 0.35), 0, h // 2, 0.2 * w, 0.3 * h)
     if fiche is None:
         erreur("Cadre de la fiche destinataire introuvable : ce PDF n'a pas la mise en page Chronopost attendue.")
-    return etiquette, fiche
+    return etiquette, fiche, repérer_depot(img, w, h, fiche)
+
+
+def repérer_depot(img, w, h, fiche):
+    """Preuve de dépôt : la zone sous la fiche, entre le pointillé horizontal (sous la fiche)
+    et le pointillé vertical (à gauche de l'étiquette). Reçu Shop2Shop, aide-mémoire, case
+    « Cachet » du relais. Recadrée au plus près de l'encre. None si les pointillés manquent."""
+    sombre = bytes(1 if i < 200 else 0 for i in range(256))
+    bas_fiche = fiche[1] + fiche[3]
+    # Pointillé horizontal : la ligne aux plus nombreuses alternances, juste sous la fiche
+    alternances = [(len(re.findall(rb"\x00\x01", img[y * w:y * w + w // 2].translate(sombre))), y)
+                   for y in range(bas_fiche + 5, min(h, bas_fiche + 120))]
+    n, haut = max(alternances, default=(0, 0))
+    # Pointillé vertical : la colonne la plus encrée de la moitié basse, au milieu de la page
+    encre = [(img[(h // 2) * w + x::w].translate(sombre).count(1), x) for x in range(int(0.4 * w), int(0.6 * w))]
+    m, droite = max(encre, default=(0, 0))
+    if n < 20 or m < 0.2 * h:
+        return None
+    zone = [(x, y) for y in range(haut + 12, h, 2) for x in range(0, droite - 8, 2) if img[y * w + x] < 200]
+    if not zone:
+        return None
+    x0, x1 = min(p[0] for p in zone), max(p[0] for p in zone)
+    y0, y1 = min(p[1] for p in zone), max(p[1] for p in zone)
+    x0, y0 = max(0, x0 - 12), max(haut + 6, y0 - 12)       # la marge ne remonte pas jusqu'au pointillé
+    return x0, y0, min(droite - 8, x1 + 12) - x0, min(h, y1 + 12) - y0
 
 
 def rendre(pdf, tmp, nom, dpi, x, y, lw, lh):
@@ -283,12 +296,40 @@ def file_par_defaut():
     return m.group(1) if m else FILE_PAR_DEFAUT
 
 
+PARTIES = [("etiquette", "Étiquette"), ("fiche", "Fiche destinataire"), ("depot", "Preuve de dépôt")]
+
+
+def redresser(pdf, tmp, nom, cadre):
+    """Cadre imprimé d'un quart de tour sur le bon : redressé, ajusté dans le 4x6 avec la marge des côtés."""
+    x0, y0, cw0, ch0 = cadre
+    echelle = min((W - 2 * MARGE_COTE) / ch0, (H - 2 * MARGE_COTE) / cw0)
+    g = rendre(pdf, tmp, nom, 288 * echelle, round(x0 * echelle), round(y0 * echelle),
+               round(cw0 * echelle), round(ch0 * echelle))
+    gw, gh, g = tourner_gauche(g[2], g[0], g[1])
+    return binariser(g, gw, gh, 140, ox=MARGE_COTE, oy=MARGE_COTE, trame=(150, 195))
+
+
+def choisir(disponibles):
+    """Liste à cocher : renvoie les clés choisies, ou [] si annulé."""
+    noms = [n for k, n in PARTIES if k in disponibles]
+    script = ('choose from list {%s} with title "Étiquette Chronopost RP425" '
+              'with prompt "Aperçu ouvert. Que faut-il imprimer ? (⌘-clic pour en cocher plusieurs)" '
+              'default items {"Étiquette"} with multiple selections allowed') % ", ".join('"%s"' % n for n in noms)
+    r = subprocess.run(["osascript", "-e", script], capture_output=True, text=True)
+    sortie = r.stdout.strip()
+    if r.returncode != 0 or sortie in ("", "false"):
+        return []
+    retenus = [s.strip() for s in sortie.split(", ")]
+    return [k for k, n in PARTIES if n in retenus]
+
+
 def main():
     args = sys.argv[1:]
     pdf = trouver_pdf(args)
     os.makedirs(SORTIE, exist_ok=True)
+    images = {}
     with tempfile.TemporaryDirectory() as tmp:
-        (x0, y0, fw, fh), (fx0, fy0, ffw, ffh) = repérer(pdf, tmp)
+        (x0, y0, fw, fh), fiche, depot = repérer(pdf, tmp)
 
         # Étiquette : sans déformation, centrée, avec une marge sur les côtés.
         # Au ras du papier, la RP425 tronquait le cadre et le texte côté droit (essai du 2026-10-17).
@@ -297,57 +338,55 @@ def main():
         lh = min(H, round(fh * dpi / 288))
         haut = (H - lh) // 2
         gw, gh, g = rendre(pdf, tmp, "etiquette", dpi, round(x0 * dpi / 288), round(y0 * dpi / 288), lw, lh)
-        etiquette = binariser(g, gw, gh, 170, ox=MARGE_COTE, oy=haut)
-        cadre_noir(etiquette, MARGE_COTE, MARGE_COTE + lw, haut, haut + lh)
-        zpl_e, _ = vers_zpl(etiquette)
+        images["etiquette"] = binariser(g, gw, gh, 170, ox=MARGE_COTE, oy=haut)
+        cadre_noir(images["etiquette"], MARGE_COTE, MARGE_COTE + lw, haut, haut + lh)
 
-        # Fiche destinataire : redressée d'un quart de tour, ajustée dans le 4x6 avec la même marge que l'étiquette
-        marge = MARGE_COTE
-        echelle = min((W - 2 * marge) / ffh, (H - 2 * marge) / ffw)
-        dpi_f = 288 * echelle
-        cw, ch = round(ffw * echelle), round(ffh * echelle)
-        fg, fgh, fgg = rendre(pdf, tmp, "fiche", dpi_f, round(fx0 * echelle), round(fy0 * echelle), cw, ch)
-        fg, fgh, fgg = tourner_gauche(fgg, fg, fgh)
-        fiche = binariser(fgg, fg, fgh, 140, ox=marge, oy=marge, trame=(150, 195))
-        zpl_f, _ = vers_zpl(fiche)
+        # Fiche destinataire et preuve de dépôt : imprimées d'un quart de tour sur le bon
+        images["fiche"] = redresser(pdf, tmp, "fiche", fiche)
+        if depot:
+            images["depot"] = redresser(pdf, tmp, "depot", depot)
 
-    fichiers = {
-        "etiquette": os.path.join(SORTIE, "etiquette-4x6.zpl"),
-        "fiche": os.path.join(SORTIE, "fiche-4x6.zpl"),
-    }
-    open(fichiers["etiquette"], "w").write(zpl_e)
-    open(fichiers["fiche"], "w").write(zpl_f)
+    fichiers = {}
+    for k, b in images.items():
+        fichiers[k] = os.path.join(SORTIE, {"etiquette": "etiquette", "fiche": "fiche", "depot": "preuve-depot"}[k] + "-4x6.zpl")
+        open(fichiers[k], "w").write(vers_zpl(b)[0])
     apercu = os.path.join(SORTIE, "apercu.png")
-    open(apercu, "wb").write(png_1bit([etiquette, fiche]))
+    open(apercu, "wb").write(png_1bit([images[k] for k, _ in PARTIES if k in images]))
     print("PDF :", pdf)
-    print("ZPL :", fichiers["etiquette"], len(zpl_e), "octets;", fichiers["fiche"], len(zpl_f), "octets")
+    for k, f in fichiers.items():
+        print("ZPL :", f, os.path.getsize(f), "octets")
+    if "depot" not in images:
+        print("Preuve de dépôt introuvable sur ce bon : non proposée.")
     print("Aperçu :", apercu)
 
     if "--sans-impression" in args:
         return
-    if len(zpl_e) > 60000 or len(zpl_f) > 60000:
+    if any(os.path.getsize(f) > 60000 for f in fichiers.values()):
         erreur("Fichier ZPL trop gros (> 60 Ko) : l'imprimante le tronquerait. Rien imprimé.")
 
-    choix = "Étiquette seule"
-    if "--sans-dialogue" not in args:
+    demande = [a.split("=", 1)[1] for a in args if a.startswith("--parties=")]
+    if demande:
+        choix = [k for k in demande[0].split(",") if k in images]
+        if not choix:
+            erreur("--parties : choisir parmi " + ", ".join(images) + ". Rien imprimé.")
+    elif "--sans-dialogue" in args:
+        choix = ["etiquette"]
+    else:
         subprocess.run(["open", "-a", "Preview", apercu])
-        choix = dialogue(
-            "Aperçu ouvert (étiquette à gauche, fiche destinataire à droite). Que faut-il imprimer ?",
-            ["Annuler", "Étiquette + fiche", "Étiquette seule"], "Étiquette seule")
-        if choix is None or choix == "Annuler":
-            print("Annulé, rien imprimé.")
-            return
+        choix = choisir(images)
+    if not choix:
+        print("Annulé, rien imprimé.")
+        return
     file_ = file_par_defaut()
-    envois = [fichiers["etiquette"]] + ([fichiers["fiche"]] if choix == "Étiquette + fiche" else [])
-    for f in envois:
-        r = subprocess.run(["lpr", "-P", file_, "-o", "raw", f], capture_output=True, text=True)
+    for k in choix:
+        r = subprocess.run(["lpr", "-P", file_, "-o", "raw", fichiers[k]], capture_output=True, text=True)
         if r.returncode != 0:
             erreur("L'envoi à l'imprimante a échoué : " + (r.stderr.strip() or "erreur lpr"))
-    print("Envoyé à", file_, ":", len(envois), "travail(aux).")
+    print("Envoyé à", file_, ":", ", ".join(choix))
     if "--sans-dialogue" not in args:
         subprocess.run(["osascript", "-e",
                         'display notification "%d étiquette(s) envoyée(s) à l\'imprimante" with title "Étiquette Chronopost RP425"'
-                        % len(envois)], capture_output=True)
+                        % len(choix)], capture_output=True)
 
 
 if __name__ == "__main__":

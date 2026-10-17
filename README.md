@@ -12,7 +12,7 @@ Calée sur un bon Chronopost Shop2Shop (Chrono Relais) généré par leboncoin 
 
 - **Étiquette** : le grand cadre de la moitié droite. Il fait environ 110 × 144 mm (rapport 1,31). Le script le réduit pour laisser 3 mm de chaque côté du papier et le centre en hauteur, sans le déformer.
 - **Fiche destinataire** : le cadre en haut à gauche, imprimé de travers (un quart de tour) sur le bon. Le script la redresse. Son bandeau gris passe en trame légère, sinon il sort noir et le texte blanc disparaît.
-- L'aide-mémoire et le reçu de l'expéditeur, au centre et en bas à gauche, ne sont pas imprimés.
+- **Preuve de dépôt** : la zone en bas à gauche, sous le pointillé. On y trouve le reçu Shop2Shop (numéro de colis, expéditeur, destinataire, poids), l'aide-mémoire et la case « Cachet » que le relais tamponne. Elle aussi est imprimée de travers ; le script la redresse et la recadre au plus près. Tu la gardes, c'est ta preuve en cas de colis perdu.
 
 Un autre modèle de bon Chronopost (Chrono 13, Chrono Classic, bon fait depuis chronopost.fr) n'a pas été essayé. Si la mise en page diffère, le script s'arrête sans rien imprimer.
 
@@ -20,8 +20,8 @@ Un autre modèle de bon Chronopost (Chrono 13, Chrono Classic, bon fait depuis c
 
 1. Il prend le PDF que tu lui donnes, ou le bon d'envoi le plus récent de ton dossier Téléchargements (nom contenant « chronopost », « chrono », « envoi » ou « colis »).
 2. Il repère le cadre de l'étiquette et le dessine à 203 dpi, à la taille du papier moins 3 mm sur les côtés.
-3. Il ouvre un aperçu : l'étiquette à gauche, la fiche destinataire à droite.
-4. Il te demande : annuler, étiquette seule, ou étiquette et fiche. Rien ne part avant ton clic.
+3. Il ouvre un aperçu : l'étiquette, la fiche destinataire puis la preuve de dépôt, côte à côte.
+4. Une liste te demande quoi imprimer. L'étiquette est cochée d'avance, ⌘-clic pour en prendre plusieurs. Rien ne part avant ton clic.
 5. Il envoie le ZPL compressé à l'imprimante par défaut (`lpr -o raw`).
 
 ## Ce qu'il te faut
@@ -42,6 +42,7 @@ Tu obtiens `Imprimer étiquette Chronopost.app`. Double-clic, ou glisse le PDF d
 ```bash
 python3 imprimer_etiquette.py bon-d-envoi.pdf
 python3 imprimer_etiquette.py bon-d-envoi.pdf --sans-impression   # génère seulement le ZPL et l'aperçu
+python3 imprimer_etiquette.py bon-d-envoi.pdf --parties=fiche,depot   # imprime ces parties sans liste
 ```
 
 Les fichiers générés vont dans `dernier/` (ignoré par git).
