@@ -7,3 +7,4 @@ dernier/
 *.app/
 icone.icns
 .DS_Store
+__pycache__/

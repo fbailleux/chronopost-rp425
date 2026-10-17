@@ -1,5 +1,5 @@
 #!/opt/homebrew/bin/python3
-"""Imprime le bon d'envoi Mondial Relay (PDF) sur la Rongta RP425 en 4x6 pouces.
+"""Imprime le bon d'envoi Chronopost (PDF) sur la Rongta RP425 en 4x6 pouces.
 
 Usage :
     imprimer_etiquette.py [fichier.pdf] [--sans-impression] [--sans-dialogue]
@@ -33,7 +33,7 @@ def outil(nom):
     return chemin
 
 
-def dialogue(texte, boutons, defaut, titre="Étiquette RP425"):
+def dialogue(texte, boutons, defaut, titre="Étiquette Chronopost RP425"):
     """Renvoie le bouton cliqué, ou None si annulé."""
     liste = ", ".join('"%s"' % b for b in boutons)
     script = 'display dialog "%s" with title "%s" buttons {%s} default button "%s" cancel button "%s"' % (
@@ -49,7 +49,7 @@ def erreur(texte):
     sys.stderr.write(texte + "\n")
     if "--sans-dialogue" not in sys.argv:
         subprocess.run(["osascript", "-e",
-                        'display dialog "%s" with title "Étiquette RP425" buttons {"OK"} default button "OK" with icon stop'
+                        'display dialog "%s" with title "Étiquette Chronopost RP425" buttons {"OK"} default button "OK" with icon stop'
                         % texte.replace('"', "'")], capture_output=True)
     sys.exit(1)
 
@@ -59,7 +59,7 @@ def trouver_pdf(args):
         if not a.startswith("--") and a.lower().endswith(".pdf"):
             return a
     candidats = glob.glob(os.path.expanduser("~/Downloads/*.pdf"))
-    candidats = [c for c in candidats if re.search(r"envoi|mondial|colis", os.path.basename(c), re.I)]
+    candidats = [c for c in candidats if re.search(r"chronopost|chrono|envoi|colis", os.path.basename(c), re.I)]
     if not candidats:
         erreur("Aucun bon d'envoi trouvé dans Téléchargements. Glisse le PDF sur l'application.")
     return max(candidats, key=os.path.getmtime)
@@ -92,7 +92,7 @@ def repérer_cadre(pdf, tmp):
         if longueur > 0.3 * h:
             colonnes.append(x)
     if len(lignes) < 2 or len(colonnes) < 2:
-        erreur("Cadre de l'étiquette introuvable : ce PDF n'a pas la mise en page Mondial Relay attendue.")
+        erreur("Cadre de l'étiquette introuvable : ce PDF n'a pas la mise en page Chronopost attendue.")
     x0, y0 = min(colonnes), min(lignes)
     largeur = max(colonnes) - x0 + 2
     hauteur = max(lignes) - y0 + 2
@@ -269,6 +269,7 @@ def main():
         zpl_e, _ = vers_zpl(etiquette)
 
         # Fiche destinataire : colonne de droite, ajustée dans le 4x6 avec 20 points de marge
+        # À CALER : décalages et dpi relevés sur le bon Mondial Relay, pas encore sur un bon Chronopost
         pt = lambda px: px * 72 / 288
         fx_pt = pt(x0 + fw) + 22.75
         fy_pt = pt(y0) + 32.25
@@ -314,7 +315,7 @@ def main():
     print("Envoyé à", file_, ":", len(envois), "travail(aux).")
     if "--sans-dialogue" not in args:
         subprocess.run(["osascript", "-e",
-                        'display notification "%d étiquette(s) envoyée(s) à l\'imprimante" with title "Étiquette RP425"'
+                        'display notification "%d étiquette(s) envoyée(s) à l\'imprimante" with title "Étiquette Chronopost RP425"'
                         % len(envois)], capture_output=True)
 
 

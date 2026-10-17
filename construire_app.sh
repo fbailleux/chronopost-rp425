@@ -1,9 +1,9 @@
 #!/bin/bash
-# Construit « Imprimer étiquette.app » à côté du script.
+# Construit « Imprimer étiquette Chronopost.app » à côté du script.
 # Icône facultative : dépose un fichier icone.icns dans ce dossier avant de lancer.
 set -euo pipefail
 ICI="$(cd "$(dirname "$0")" && pwd)"
-APP="$ICI/Imprimer étiquette.app"
+APP="$ICI/Imprimer étiquette Chronopost.app"
 TMP="$(mktemp -d)"
 sed "s|@@SCRIPT@@|$ICI/imprimer_etiquette.py|" "$ICI/app/Imprimer-etiquette.applescript" > "$TMP/app.applescript"
 rm -rf "$APP"
