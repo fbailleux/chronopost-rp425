@@ -72,33 +72,48 @@ def pgm(chemin):
     return w, h, d[len(d) - w * h:]
 
 
-def repérer_cadre(pdf, tmp):
-    """Cadre de l'étiquette en pixels à 288 dpi : (x0, y0, largeur, page_w_pt)."""
+def encadré(img, w, h, zx0, zx1, zy0, zy1, min_ligne, min_colonne):
+    """Plus grand rectangle tracé dans la zone : (x0, y0, largeur, hauteur) en pixels, ou None."""
+    sombre = bytes(1 if i < 200 else 0 for i in range(256))
+    lignes = []
+    for y in range(zy0, zy1):
+        s = img[y * w + zx0:y * w + zx1].translate(sombre)
+        if max((len(m.group()) for m in re.finditer(rb"\x01+", s)), default=0) > min_ligne:
+            lignes.append(y)
+    colonnes, haut, bas = [], h, 0
+    for x in range(zx0, zx1):
+        s = img[zy0 * w + x:zy1 * w:w].translate(sombre)
+        trait = max(re.finditer(rb"\x01+", s), key=lambda m: len(m.group()), default=None)
+        if trait and len(trait.group()) > min_colonne:
+            colonnes.append(x)
+            haut, bas = min(haut, zy0 + trait.start()), max(bas, zy0 + trait.end())
+    # La hauteur vient des montants du cadre : un trait horizontal voisin (autre encadré) ne l'allonge pas
+    lignes = [y for y in lignes if haut - 2 <= y <= bas + 2]
+    if len(lignes) < 2 or len(colonnes) < 2:
+        return None
+    x0 = min(colonnes)
+    return x0, haut, max(colonnes) - x0 + 2, bas - haut + 2
+
+
+def repérer(pdf, tmp):
+    """Bon Chronopost en A4 paysage, pixels à 288 dpi.
+    Étiquette : grand cadre de la moitié droite (rapport ~1,31, tient en largeur dans le 4x6).
+    Fiche destinataire : cadre du quart haut gauche, imprimé tourné d'un quart de tour."""
     base = os.path.join(tmp, "page")
     subprocess.run([outil("pdftoppm"), "-r", "288", "-gray", "-singlefile", pdf, base], check=True)
     w, h, img = pgm(base + ".pgm")
-    sombre = bytes(1 if i < 200 else 0 for i in range(256))
-    zone = int(w * 0.6)
-    lignes = []
-    for y in range(h):
-        s = img[y * w:y * w + zone].translate(sombre)
-        longueur = max((len(m.group()) for m in re.finditer(rb"\x01+", s)), default=0)
-        if longueur > 0.4 * w:
-            lignes.append(y)
-    colonnes = []
-    for x in range(zone):
-        s = img[x::w].translate(sombre)
-        longueur = max((len(m.group()) for m in re.finditer(rb"\x01+", s)), default=0)
-        if longueur > 0.3 * h:
-            colonnes.append(x)
-    if len(lignes) < 2 or len(colonnes) < 2:
+    if w < h:
+        erreur("Ce PDF n'est pas en paysage : ce n'est pas la mise en page Chronopost attendue. Rien imprimé.")
+    etiquette = encadré(img, w, h, int(w * 0.55), w, 0, h, 0.3 * w, 0.5 * h)
+    if etiquette is None:
         erreur("Cadre de l'étiquette introuvable : ce PDF n'a pas la mise en page Chronopost attendue.")
-    x0, y0 = min(colonnes), min(lignes)
-    largeur = max(colonnes) - x0 + 2
-    hauteur = max(lignes) - y0 + 2
-    if abs(hauteur / largeur - 1.5) > 0.03:
-        erreur("Le cadre détecté n'est pas au format 4x6 (rapport %.2f au lieu de 1,50). Rien imprimé." % (hauteur / largeur))
-    return x0, y0, largeur, w * 72 / 288
+    rapport = etiquette[3] / etiquette[2]
+    if not 1.2 <= rapport <= H / W:
+        erreur("Le cadre détecté n'entre pas dans le 4x6 (rapport %.2f, attendu entre 1,20 et 1,50). Rien imprimé." % rapport)
+    fiche = encadré(img, w, h, 0, int(w * 0.35), 0, h // 2, 0.2 * w, 0.3 * h)
+    if fiche is None:
+        erreur("Cadre de la fiche destinataire introuvable : ce PDF n'a pas la mise en page Chronopost attendue.")
+    return etiquette, fiche
 
 
 def rendre(pdf, tmp, nom, dpi, x, y, lw, lh):
@@ -109,21 +124,36 @@ def rendre(pdf, tmp, nom, dpi, x, y, lw, lh):
     return w, h, img
 
 
-def binariser(g, gw, gh, seuil, marge=0):
+def binariser(g, gw, gh, seuil, ox=0, oy=0, trame=None):
+    """trame=(bas, haut) : les gris de cet intervalle deviennent un point sur quatre,
+    pour qu'un texte blanc posé sur un aplat gris reste lisible."""
     b = bytearray(W * H)
-    for y in range(min(gh, H - marge)):
+    for y in range(min(gh, H - oy)):
         lig = g[y * gw:(y + 1) * gw]
-        base = (y + marge) * W + marge
-        for x in range(min(gw, W - marge)):
-            if lig[x] < seuil:
+        base = (y + oy) * W + ox
+        for x in range(min(gw, W - ox)):
+            v = lig[x]
+            if trame and trame[0] <= v <= trame[1]:
+                b[base + x] = 1 if x % 2 == 0 and y % 2 == 0 else 0
+            elif v < seuil:
                 b[base + x] = 1
     return b
 
 
-def cadre_noir(b, epaisseur=3):
-    for y in range(H):
+def tourner_gauche(g, gw, gh):
+    """Quart de tour dans le sens inverse des aiguilles d'une montre : (gh, gw, image)."""
+    r = bytearray(gw * gh)
+    for y in range(gh):
+        lig = g[y * gw:(y + 1) * gw]
+        for x in range(gw):
+            r[(gw - 1 - x) * gh + y] = lig[x]
+    return gh, gw, bytes(r)
+
+
+def cadre_noir(b, y0=0, y1=H, epaisseur=3):
+    for y in range(y0, y1):
         for x in range(W):
-            if x < epaisseur or x >= W - epaisseur or y < epaisseur or y >= H - epaisseur:
+            if x < epaisseur or x >= W - epaisseur or y < y0 + epaisseur or y >= y1 - epaisseur:
                 b[y * W + x] = 1
 
 
@@ -257,27 +287,25 @@ def main():
     pdf = trouver_pdf(args)
     os.makedirs(SORTIE, exist_ok=True)
     with tempfile.TemporaryDirectory() as tmp:
-        x0, y0, fw, page_pt = repérer_cadre(pdf, tmp)
+        (x0, y0, fw, fh), (fx0, fy0, ffw, ffh) = repérer(pdf, tmp)
 
-        # Étiquette : le cadre est calé au ras du 4x6, sans déformation
+        # Étiquette : le cadre prend toute la largeur du 4x6, sans déformation, centré en hauteur
         dpi = 288 * W / fw
-        x = round(x0 * dpi / 288)
-        y = round(y0 * dpi / 288)
-        gw, gh, g = rendre(pdf, tmp, "etiquette", dpi, x, y, W, H)
-        etiquette = binariser(g, gw, gh, 170)
-        cadre_noir(etiquette)
+        lh = min(H, round(fh * dpi / 288))
+        haut = (H - lh) // 2
+        gw, gh, g = rendre(pdf, tmp, "etiquette", dpi, round(x0 * dpi / 288), round(y0 * dpi / 288), W, lh)
+        etiquette = binariser(g, gw, gh, 170, oy=haut)
+        cadre_noir(etiquette, haut, haut + lh)
         zpl_e, _ = vers_zpl(etiquette)
 
-        # Fiche destinataire : colonne de droite, ajustée dans le 4x6 avec 20 points de marge
-        # À CALER : décalages et dpi relevés sur le bon Mondial Relay, pas encore sur un bon Chronopost
-        pt = lambda px: px * 72 / 288
-        fx_pt = pt(x0 + fw) + 22.75
-        fy_pt = pt(y0) + 32.25
-        dpi_f = 206.6
-        fx = round(fx_pt * dpi_f / 72)
-        fy = round(fy_pt * dpi_f / 72)
-        fg, fgh, fgg = rendre(pdf, tmp, "fiche", dpi_f, fx, fy, 772, 1128)
-        fiche = binariser(fgg, fg, fgh, 185, marge=20)
+        # Fiche destinataire : redressée d'un quart de tour, ajustée dans le 4x6 avec 20 points de marge
+        marge = 20
+        echelle = min((W - 2 * marge) / ffh, (H - 2 * marge) / ffw)
+        dpi_f = 288 * echelle
+        cw, ch = round(ffw * echelle), round(ffh * echelle)
+        fg, fgh, fgg = rendre(pdf, tmp, "fiche", dpi_f, round(fx0 * echelle), round(fy0 * echelle), cw, ch)
+        fg, fgh, fgg = tourner_gauche(fgg, fg, fgh)
+        fiche = binariser(fgg, fg, fgh, 140, ox=marge, oy=marge, trame=(150, 195))
         zpl_f, _ = vers_zpl(fiche)
 
     fichiers = {

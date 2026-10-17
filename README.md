@@ -6,9 +6,15 @@ Un script pour imprimer le bon d'envoi Chronopost sur une imprimante d'étiquett
 
 Dérivé de [mondial-relay-rp425](https://github.com/fbailleux/mondial-relay-rp425) : même chaîne (repérage du cadre, ZPL compressé, aperçu, confirmation).
 
-## État
+## Mise en page attendue
 
-**La mise en page Chronopost n'est pas encore calée.** Le repérage du cadre et la position de la fiche destinataire viennent du bon Mondial Relay. Tant qu'un vrai bon Chronopost n'a pas été passé en `--sans-impression`, le script peut refuser le PDF (cadre introuvable ou pas au format 4×6) : il s'arrête alors sans rien imprimer.
+Calée sur un bon Chronopost Shop2Shop (Chrono Relais) généré par leboncoin : A4 paysage.
+
+- **Étiquette** : le grand cadre de la moitié droite. Il fait environ 110 × 144 mm (rapport 1,31) : il prend toute la largeur du 4×6 et se centre en hauteur, sans déformation.
+- **Fiche destinataire** : le cadre en haut à gauche, imprimé tourné d'un quart de tour sur le bon. Le script la redresse. Son bandeau gris est rendu en trame légère pour que le texte blanc reste lisible.
+- L'aide-mémoire et le reçu de l'expéditeur, au centre et en bas à gauche, ne sont pas imprimés.
+
+Un autre modèle de bon Chronopost (Chrono 13, Chrono Classic, bon fait depuis chronopost.fr) n'a pas été essayé. Si la mise en page diffère, le script s'arrête sans rien imprimer.
 
 ## Ce que ça fait
 
@@ -52,11 +58,11 @@ Dépose un fichier `icone.icns` dans le dossier avant de lancer `construire_app.
 
 ## Garde-fous
 
-Le script refuse d'imprimer si le cadre détecté n'est pas au rapport 2:3, si le ZPL dépasse 60 Ko, ou si la compression ne redonne pas exactement l'image d'origine (il décode son propre flux pour le vérifier).
+Le script refuse d'imprimer si le PDF n'est pas en paysage, si l'un des deux cadres est introuvable, si le cadre de l'étiquette n'entre pas dans le 4×6 (rapport hors de 1,20 à 1,50), si le ZPL dépasse 60 Ko, ou si la compression ne redonne pas exactement l'image d'origine (il décode son propre flux pour le vérifier).
 
 ## Limites
 
-- Aucun bon Chronopost testé pour l'instant (voir « État »). Une seule imprimante visée, la RP425 en 203 dpi.
+- Testé sur un seul modèle de bon d'envoi (Shop2Shop via leboncoin) et une seule imprimante, la RP425 en 203 dpi.
 - Aucun bon d'envoi réel dans ce dépôt : il contient des noms et des adresses, il reste sur ta machine.
 - Projet indépendant, sans lien avec Chronopost ni Rongta.
 
